@@ -144,3 +144,13 @@ Deno.test("ec + single + rsa", () =>
     modulusLength: 2048,
     publicExponent: new Uint8Array([1, 0, 1]),
   }));
+
+Deno.test("ec + wildcard + ec", () =>
+  test(ecPrivateKey, [{ type: "dns", value: "example6.com" }, {
+    type: "dns",
+    value: "*.example6.com",
+  }], {
+    name: "ECDSA",
+    namedCurve: "P-256",
+    hash: "SHA-256",
+  }));

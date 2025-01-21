@@ -1,4 +1,3 @@
-/* @ts-types="npm:@types/node" */
 import { createPublicKey, type KeyObject } from "node:crypto";
 import { base64url, calculateJwkThumbprint, FlattenedSign } from "npm:jose@5";
 
