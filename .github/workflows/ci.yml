@@ -27,7 +27,7 @@ jobs:
         run: deno lint
 
       - name: Check types
-        run: deno check main.ts
+        run: deno check mod.ts
 
       - name: Run tests
         run: |
