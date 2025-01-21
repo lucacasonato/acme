@@ -1,0 +1,37 @@
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+
+      - name: Check formatting
+        run: deno fmt --check
+
+      - name: Check linting
+        run: deno lint
+
+      - name: Check types
+        run: deno check main.ts
+
+      - name: Run tests
+        run: |
+          docker compose up -d
+          deno test -A --unsafely-ignore-certificate-errors
+
+      - name: Publish (dry-run)
+        if: github.ref != 'refs/heads/main'
+        run: deno publish --dry-run
+
+      - name: Publish
+        if: github.ref == 'refs/heads/main'
+        run: deno publish
