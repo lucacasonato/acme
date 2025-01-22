@@ -8,6 +8,7 @@ interface Directory {
   revokeCert: string;
   keyChange: string;
   newAuthz?: string;
+  renewalInfo?: string;
 }
 
 /**
@@ -133,14 +134,26 @@ export interface Order {
   url: string;
   /** The status of the order. */
   status: "pending" | "ready" | "processing" | "valid" | "invalid";
-  /** The date the order expires. If unset, the order does not expire. */
-  expires?: Date;
+  /**
+   * The date the order expires. If unset, the order does not expire.
+   *
+   * This is encoded as a RFC 3339 date-time string.
+   */
+  expires?: string;
   /** The identifiers that will be listed in the certificate when issued. */
   identifiers: Identifier[];
-  /** The earliest date that the certificate should be valid. */
-  notBefore?: Date;
-  /** The latest date that the certificate should be valid. */
-  notAfter?: Date;
+  /**
+   * The earliest date that the certificate should be valid.
+   *
+   * This is encoded as a RFC 3339 date-time string.
+   */
+  notBefore?: string;
+  /**
+   * The latest date that the certificate should be valid.
+   *
+   * This is encoded as a RFC 3339 date-time string.
+   */
+  notAfter?: string;
   /** An error object if the order is in "invalid" status. */
   error?: ProblemDocument;
   /** The authorizations that must be completed to issue the certificate. */
@@ -179,8 +192,10 @@ export interface Authorization {
   /**
    * The date the authorization expires. If unset, the authorization does not
    * expire.
+   *
+   * This is encoded as a RFC 3339 date-time string.
    */
-  expires?: Date;
+  expires?: string;
   /**
    * The challenges that can be completed to validate the identifier. Any of
    * these can be completed, and only one is required.
@@ -201,12 +216,45 @@ export interface Challenge {
   /**
    * The date the challenge was validated, if it has been. This is guaranteed to
    * be set if the status is "valid".
+   *
+   * This is encoded as a RFC 3339 date-time string.
    */
-  validated?: Date;
+  validated?: string;
   /** An error object if the challenge is in "invalid" status. */
   error?: ProblemDocument;
   /** The token that must be served to validate the challenge. */
   token?: string;
+}
+
+export interface RenewalInfo {
+  /**
+   * The suggested window for renewing the certificate. A client should choose
+   * a random time within this window to renew the certificate.
+   */
+  suggestedWindow: {
+    /**
+     * The start of the window.
+     *
+     * This is encoded as a RFC 3339 date-time string.
+     */
+    start: string;
+    /**
+     * The end of the window.
+     *
+     * This is encoded as a RFC 3339 date-time string.
+     */
+    end: string;
+  };
+  /**
+   * A URL to the ACME provider's documentation on why this certificate should
+   * be renewed within the suggested window.
+   */
+  explanationURL?: string;
+
+  /**
+   * The number of seconds to wait before re-checking the renewal information.
+   */
+  retryAfter?: number;
 }
 
 /** The ACME client. */
@@ -404,6 +452,42 @@ export class Client {
     return resource;
   }
 
+  /** Get the renewal information for a certificate. */
+  async getRenewalInfo(
+    certificateUniqueIdentity: string,
+  ): Promise<RenewalInfo> {
+    const directory = await this.#getDirectory();
+    if (directory.renewalInfo === undefined) {
+      throw new Error("Provider does not support renewal information");
+    }
+    const url = directory.renewalInfo + "/" + certificateUniqueIdentity;
+    const resp = await fetch(url);
+    if (resp.ok) {
+      const contentType = resp.headers.get("Content-Type");
+      if (contentType?.startsWith("application/json")) {
+        const data: RenewalInfo = await resp.json();
+        const retryAfter = resp.headers.get("Retry-After");
+        if (retryAfter) data.retryAfter = parseInt(retryAfter);
+        return data;
+      } else {
+        throw new Error("Unexpected content type: " + contentType);
+      }
+    } else {
+      const text = await resp.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new HttpError(resp.status, text);
+      }
+      if (data.type && data.detail) {
+        throw new AcmeError(data.type, data.detail, data.subproblems || null);
+      } else {
+        throw new HttpError(resp.status, text);
+      }
+    }
+  }
+
   #getThumbprint() {
     if (this.#thumbprint === null) {
       this.#thumbprint = calculateJwkThumbprint(
@@ -510,7 +594,7 @@ export class Client {
       try {
         data = JSON.parse(text);
       } catch {
-        throw new Error("Failed to parse JSON: " + text);
+        throw new HttpError(resp.status, text);
       }
       if (data.type && data.detail) {
         throw new AcmeError(data.type, data.detail, data.subproblems || null);

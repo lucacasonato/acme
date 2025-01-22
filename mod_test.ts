@@ -2,6 +2,7 @@ import { generateKeyPairSync, type KeyObject } from "node:crypto";
 import { Client, type Identifier } from "./mod.ts";
 import { base64url } from "npm:jose@5";
 import * as x509 from "npm:@peculiar/x509@1.12";
+import { Buffer } from "node:buffer";
 
 async function pebbleDo(path: string, body: unknown): Promise<void> {
   const resp = await fetch(`http://localhost:8055${path}`, {
@@ -76,6 +77,43 @@ async function test(
   });
 
   order = await client.finalizeOrder(order, new Uint8Array(csr.rawData));
+
+  order = await client.waitUntil(order, ["valid", "invalid"]);
+
+  if (order.status === "invalid") {
+    throw order;
+  }
+
+  const cert = await client.getCertificate(order.certificate!);
+
+  const certRaw = x509.PemConverter.decodeFirst(cert);
+  const certObj = new x509.X509Certificate(certRaw);
+
+  const certUID = getCertificateUniqueIdentifier(certObj);
+
+  const renewalInfo = await client.getRenewalInfo(certUID);
+  const end = new Date(renewalInfo.suggestedWindow.end);
+  if (end.getTime() >= certObj.notAfter.getTime()) {
+    throw new Error("end is not before notAfter");
+  }
+}
+
+function getCertificateUniqueIdentifier(cert: x509.X509Certificate): string {
+  // The unique identifier is constructed by concatenating the
+  //  base64url-encoding [RFC4648] of the keyIdentifier field of the
+  //  certificate's Authority Key Identifier (AKI) [RFC5280] extension, a
+  //  literal period, and the base64url-encoding of the DER-encoded Serial
+  //  Number field (without the tag and length bytes).  All trailing "="
+  //  characters MUST be stripped from both parts of the unique identifier.
+
+  const akiExt = cert.getExtension(x509.AuthorityKeyIdentifierExtension);
+  if (!akiExt || !akiExt.keyId) {
+    throw new Error("No AKI extension found or no keyId in AKI extension");
+  }
+  const keyId = Buffer.from(akiExt.keyId, "hex");
+  const serialNumber = Buffer.from(cert.serialNumber, "hex");
+  return base64url.encode(keyId).replaceAll("=", "") + "." +
+    base64url.encode(serialNumber).replaceAll("=", "");
 }
 
 async function doAuthz(
