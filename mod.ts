@@ -403,7 +403,13 @@ export class Client {
    * @returns The current authorization object.
    */
   async getAuthorization(url: string): Promise<Authorization> {
-    return await this.#signedRequest<Authorization>(url, undefined, "kid");
+    const auth = await this.#signedRequest<Authorization>(
+      url,
+      undefined,
+      "kid",
+    );
+    auth.url = url;
+    return auth;
   }
 
   /**
