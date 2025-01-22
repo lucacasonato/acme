@@ -118,6 +118,11 @@ export interface NewOrderRequest {
    * support this.
    */
   notAfter?: Date;
+  /**
+   * The ID of the certificate this replaces, if any. Not all providers support
+   * this feature.
+   */
+  replaces?: string;
 }
 
 /** An object representing an ACME identifier. */
