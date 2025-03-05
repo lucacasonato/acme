@@ -1,7 +1,7 @@
 import { generateKeyPairSync, type KeyObject } from "node:crypto";
 import { Client, type Identifier } from "./mod.ts";
-import { base64url } from "npm:jose@5";
-import * as x509 from "npm:@peculiar/x509@1.12";
+import { base64url } from "jose";
+import * as x509 from "@peculiar/x509";
 import { Buffer } from "node:buffer";
 
 async function pebbleDo(path: string, body: unknown): Promise<void> {

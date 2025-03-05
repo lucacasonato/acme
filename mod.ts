@@ -1,5 +1,5 @@
 import { createPublicKey, type KeyObject } from "node:crypto";
-import { base64url, calculateJwkThumbprint, FlattenedSign } from "npm:jose@5";
+import { base64url, calculateJwkThumbprint, FlattenedSign } from "jose";
 
 interface Directory {
   newNonce: string;

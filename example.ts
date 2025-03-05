@@ -4,8 +4,8 @@ import {
   type KeyObject,
 } from "node:crypto";
 import { Client } from "./mod.ts";
-import { base64url } from "npm:jose@5";
-import * as x509 from "npm:@peculiar/x509@1.12";
+import { base64url } from "jose";
+import * as x509 from "@peculiar/x509";
 
 let accountKey: KeyObject;
 try {
