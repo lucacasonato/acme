@@ -44,6 +44,14 @@ export interface ClientOptions {
    * will be fetched from the directory using the account key as needed.
    */
   accountUrl?: string;
+
+  /**
+   * Options for automatically creating an account, if `accountUrl` is not set.
+   *
+   * If this is set, the account will be created with these options when needed.
+   * If the account already exists, these options will be ignored.
+   */
+  autoCreateAccountOptions?: Omit<CreateAccountRequest, "onlyReturnExisting">;
 }
 
 /**
@@ -268,6 +276,9 @@ export class Client {
   #directory: Promise<Directory> | null;
   #accountKey: KeyObject;
   #accountUrl: string | null = null;
+  #autoCreateAccountOptions:
+    | Omit<CreateAccountRequest, "onlyReturnExisting">
+    | null;
 
   #nonce: string | null = null;
 
@@ -295,6 +306,7 @@ export class Client {
     this.#directory = null;
     this.#accountKey = options.accountKey;
     this.#accountUrl = options.accountUrl || null;
+    this.#autoCreateAccountOptions = options.autoCreateAccountOptions || null;
   }
 
   #getDirectory(): Promise<Directory> {
@@ -342,7 +354,11 @@ export class Client {
       contact: options.contact,
     };
     if (!this.#accountUrl) {
-      const account = await this.createAccount({ onlyReturnExisting: true });
+      const createAccountOptions = {
+        onlyReturnExisting: this.#autoCreateAccountOptions === null,
+        ...this.#autoCreateAccountOptions,
+      };
+      const account = await this.createAccount(createAccountOptions);
       this.#accountUrl = account.url;
     }
     return await this.#signedRequest<Account>(this.#accountUrl, req, "kid");
@@ -560,7 +576,11 @@ export class Client {
     let jwk: any | undefined;
     if (mode === "kid") {
       if (!this.#accountUrl) {
-        const account = await this.createAccount({ onlyReturnExisting: true });
+        const createAccountOptions = {
+          onlyReturnExisting: this.#autoCreateAccountOptions === null,
+          ...this.#autoCreateAccountOptions,
+        };
+        const account = await this.createAccount(createAccountOptions);
         this.#accountUrl = account.url;
       }
       kid = this.#accountUrl;
