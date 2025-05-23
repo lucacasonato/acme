@@ -1,6 +1,6 @@
 {
   "name": "@luca/acme",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "exports": "./mod.ts",
   "imports": {
     "@peculiar/x509": "npm:@peculiar/x509@^1.12.3",
