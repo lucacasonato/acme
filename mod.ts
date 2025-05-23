@@ -444,7 +444,7 @@ export class Client {
    * @returns The challenge key authorization.
    */
   async getChallengeKeyAuthorization(token: string): Promise<string> {
-    return token + "." + await this.#getThumbprint();
+    return token + "." + (await this.#getThumbprint());
   }
 
   /**
@@ -537,7 +537,10 @@ export class Client {
       } catch (e) {
         if (
           e instanceof AcmeError &&
-          e.type === "urn:ietf:params:acme:error:badNonce" && retry < 3
+          (e.type === "urn:ietf:params:acme:error:badNonce" ||
+            // retry in case we hit a stale read replica: https://community.letsencrypt.org/t/occasional-no-such-authorization/191497/11
+            e.type === "urn:ietf:params:acme:error:malformed") &&
+          retry < 3
         ) {
           retry++;
           continue;
@@ -615,7 +618,7 @@ export class Client {
         if (location) data.url = location;
         return data;
       } else if (contentType?.startsWith("application/pem-certificate-chain")) {
-        return await resp.text() as T;
+        return (await resp.text()) as T;
       } else {
         throw new Error("Unexpected content type: " + contentType);
       }
