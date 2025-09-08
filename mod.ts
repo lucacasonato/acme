@@ -494,8 +494,11 @@ export class Client {
       const contentType = resp.headers.get("Content-Type");
       if (contentType?.startsWith("application/json")) {
         const data: RenewalInfo = await resp.json();
-        const retryAfter = resp.headers.get("Retry-After");
-        if (retryAfter) data.retryAfter = parseInt(retryAfter);
+        const now = new Date();
+        const retryAfter = parseRetryAfter(resp.headers, now);
+        if (retryAfter && now < retryAfter) {
+          data.retryAfter = (retryAfter.getTime() - now.getTime()) / 1000;
+        }
         return data;
       } else {
         throw new Error("Unexpected content type: " + contentType);
