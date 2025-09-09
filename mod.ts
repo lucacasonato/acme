@@ -1,5 +1,6 @@
 import { createPublicKey, type KeyObject } from "node:crypto";
 import { base64url, calculateJwkThumbprint, FlattenedSign } from "jose";
+import { parseRetryAfter } from "./util.ts";
 
 interface Directory {
   newNonce: string;
@@ -493,8 +494,11 @@ export class Client {
       const contentType = resp.headers.get("Content-Type");
       if (contentType?.startsWith("application/json")) {
         const data: RenewalInfo = await resp.json();
-        const retryAfter = resp.headers.get("Retry-After");
-        if (retryAfter) data.retryAfter = parseInt(retryAfter);
+        const now = new Date();
+        const retryAfter = parseRetryAfter(resp.headers, now);
+        if (retryAfter && now < retryAfter) {
+          data.retryAfter = (retryAfter.getTime() - now.getTime()) / 1000;
+        }
         return data;
       } else {
         throw new Error("Unexpected content type: " + contentType);
@@ -508,7 +512,13 @@ export class Client {
         throw new HttpError(resp.status, text);
       }
       if (data.type && data.detail) {
-        throw new AcmeError(data.type, data.detail, data.subproblems || null);
+        const retryAfter = parseRetryAfter(resp.headers);
+        throw new AcmeError(
+          data.type,
+          data.detail,
+          data.subproblems || null,
+          retryAfter,
+        );
       } else {
         throw new HttpError(resp.status, text);
       }
@@ -631,7 +641,13 @@ export class Client {
         throw new HttpError(resp.status, text);
       }
       if (data.type && data.detail) {
-        throw new AcmeError(data.type, data.detail, data.subproblems || null);
+        const retryAfter = parseRetryAfter(resp.headers);
+        throw new AcmeError(
+          data.type,
+          data.detail,
+          data.subproblems || null,
+          retryAfter,
+        );
       } else {
         throw new HttpError(resp.status, text);
       }
@@ -680,16 +696,20 @@ export class AcmeError extends Error {
   detail: string;
   /** Additional subproblems that may have caused the error. */
   subproblems: AcmeSubproblem[] | null;
+  /** The date after which the operation should be retried. */
+  retryAfter: Date | null;
 
   constructor(
     type: string,
     detail: string,
     subproblems: AcmeSubproblem[] | null,
+    retryAfter: Date | null,
   ) {
     super(`${type}: ${detail}`);
     this.type = type;
     this.detail = detail;
     this.subproblems = subproblems;
+    this.retryAfter = retryAfter;
   }
 }
 
