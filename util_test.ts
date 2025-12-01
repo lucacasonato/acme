@@ -1,5 +1,5 @@
 import { parseRetryAfter } from "./util.ts";
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "@std/assert";
 
 Deno.test("parseRetryAfter", async (t) => {
   // RFC 7231: Delay in seconds format

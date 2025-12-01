@@ -1,6 +1,8 @@
 import { createPublicKey, type KeyObject } from "node:crypto";
 import { base64url, calculateJwkThumbprint, FlattenedSign } from "jose";
+import { SpanKind, trace } from "@opentelemetry/api";
 import { parseRetryAfter } from "./util.ts";
+import { instrument } from "./instrumentation.ts";
 
 interface Directory {
   newNonce: string;
@@ -331,7 +333,13 @@ export class Client {
    *
    * @param options The options for creating the account.
    */
+  @instrument("Client.createAccount", { kind: SpanKind.CLIENT })
   async createAccount(options: CreateAccountRequest): Promise<Account> {
+    const span = trace.getActiveSpan();
+    span?.setAttribute(
+      "acme.account.only_return_existing",
+      options.onlyReturnExisting ?? false,
+    );
     const directory = await this.#getDirectory();
     const url = directory.newAccount;
     const req = {
@@ -339,7 +347,9 @@ export class Client {
       termsOfServiceAgreed: options.termsOfServiceAgreed,
       onlyReturnExisting: options.onlyReturnExisting,
     };
-    return await this.#signedRequest<Account>(url, req, "jwk");
+    const account = await this.#signedRequest<Account>(url, req, "jwk");
+    if (account.url) span?.setAttribute("acme.account.url", account.url);
+    return account;
   }
 
   /**
@@ -349,7 +359,9 @@ export class Client {
    * @param options The options for updating the account.
    * @returns The updated account object.
    */
+  @instrument("Client.updateAccount", { kind: SpanKind.CLIENT })
   async updateAccount(options: UpdateAccountRequest): Promise<Account> {
+    const span = trace.getActiveSpan();
     const req = {
       status: options.status,
       contact: options.contact,
@@ -362,6 +374,7 @@ export class Client {
       const account = await this.createAccount(createAccountOptions);
       this.#accountUrl = account.url;
     }
+    span?.setAttribute("acme.account.url", this.#accountUrl);
     return await this.#signedRequest<Account>(this.#accountUrl, req, "kid");
   }
 
@@ -375,7 +388,17 @@ export class Client {
    * @param newOrder The options for creating the order.
    * @returns The order object.
    */
+  @instrument("Client.createOrder", { kind: SpanKind.CLIENT })
   async createOrder(newOrder: NewOrderRequest): Promise<Order> {
+    const span = trace.getActiveSpan();
+    span?.setAttribute(
+      "acme.order.identifiers",
+      newOrder.identifiers.map((i) => i.value),
+    );
+    span?.setAttribute(
+      "acme.order.identifier_count",
+      newOrder.identifiers.length,
+    );
     const directory = await this.#getDirectory();
     const url = directory.newOrder;
     const req = {
@@ -383,7 +406,14 @@ export class Client {
       notBefore: newOrder.notBefore?.toISOString(),
       notAfter: newOrder.notAfter?.toISOString(),
     };
-    return await this.#signedRequest<Order>(url, req, "kid");
+    const order = await this.#signedRequest<Order>(url, req, "kid");
+    span?.setAttribute("acme.order.url", order.url);
+    span?.setAttribute("acme.order.status", order.status);
+    span?.setAttribute(
+      "acme.order.authorizations_count",
+      order.authorizations.length,
+    );
+    return order;
   }
 
   /**
@@ -392,9 +422,13 @@ export class Client {
    * @param url The URL of the order.
    * @returns The current order object.
    */
+  @instrument("Client.getOrder", { kind: SpanKind.CLIENT })
   async getOrder(url: string): Promise<Order> {
+    const span = trace.getActiveSpan();
+    span?.setAttribute("acme.order.url", url);
     const order = await this.#signedRequest<Order>(url, undefined, "kid");
     order.url = url;
+    span?.setAttribute("acme.order.status", order.status);
     return order;
   }
 
@@ -408,13 +442,19 @@ export class Client {
    * @param csr The DER-encoded PKCS#10 CSR.
    * @returns The current order object.
    */
+  @instrument("Client.finalizeOrder", { kind: SpanKind.CLIENT })
   async finalizeOrder(
     order: { url: Order["url"]; finalize: Order["finalize"] },
     csr: Uint8Array,
   ): Promise<Order> {
+    const span = trace.getActiveSpan();
+    span?.setAttribute("acme.order.url", order.url);
+    span?.setAttribute("acme.order.finalize_url", order.finalize);
+    span?.setAttribute("acme.csr.size", csr.length);
     const req = { csr: base64url.encode(csr) };
     const res = await this.#signedRequest<Order>(order.finalize, req, "kid");
     res.url = order.url;
+    span?.setAttribute("acme.order.status", res.status);
     return res;
   }
 
@@ -424,13 +464,18 @@ export class Client {
    * @param url The URL of the authorization.
    * @returns The current authorization object.
    */
+  @instrument("Client.getAuthorization", { kind: SpanKind.CLIENT })
   async getAuthorization(url: string): Promise<Authorization> {
+    const span = trace.getActiveSpan();
+    span?.setAttribute("acme.authorization.url", url);
     const auth = await this.#signedRequest<Authorization>(
       url,
       undefined,
       "kid",
     );
     auth.url = url;
+    span?.setAttribute("acme.authorization.status", auth.status);
+    span?.setAttribute("acme.authorization.identifier", auth.identifier.value);
     return auth;
   }
 
@@ -444,7 +489,12 @@ export class Client {
    * @param token The challenge token from the challenge object ({@link Challenge.token}).
    * @returns The challenge key authorization.
    */
+  @instrument("Client.getChallengeKeyAuthorization", {
+    kind: SpanKind.INTERNAL,
+  })
   async getChallengeKeyAuthorization(token: string): Promise<string> {
+    const span = trace.getActiveSpan();
+    span?.setAttribute("acme.challenge.token", token);
     return token + "." + (await this.#getThumbprint());
   }
 
@@ -454,8 +504,13 @@ export class Client {
    *
    * @param url The URL of the challenge ({@link Challenge.url}) from the authorization object ({@link Authorization.challenges}).
    */
+  @instrument("Client.completeChallenge", { kind: SpanKind.CLIENT })
   async completeChallenge(url: string): Promise<Challenge> {
-    return await this.#signedRequest(url, {}, "kid");
+    const span = trace.getActiveSpan();
+    span?.setAttribute("acme.challenge.url", url);
+    const challenge = await this.#signedRequest<Challenge>(url, {}, "kid");
+    span?.setAttribute("acme.challenge.status", challenge.status);
+    return challenge;
   }
 
   /**
@@ -463,11 +518,27 @@ export class Client {
    *
    * @param url The URL of the certificate.
    */
+  @instrument("Client.getCertificate", { kind: SpanKind.CLIENT })
   async getCertificate(url: string): Promise<string> {
-    return await this.#signedRequest(url, undefined, "kid");
+    const span = trace.getActiveSpan();
+    span?.setAttribute("acme.certificate.url", url);
+    const certificate = await this.#signedRequest<string>(
+      url,
+      undefined,
+      "kid",
+    );
+    span?.setAttribute("acme.certificate.size", certificate.length);
+    return certificate;
   }
 
   async waitUntil<T extends { url: string; status: string }>(
+    resource: T,
+    statuses: T["status"][],
+  ): Promise<T> {
+    return await this.#instrumentedWaitUntil(resource, statuses);
+  }
+
+  async #instrumentedWaitUntil<T extends { url: string; status: string }>(
     resource: T,
     statuses: T["status"][],
   ): Promise<T> {
@@ -481,9 +552,12 @@ export class Client {
   }
 
   /** Get the renewal information for a certificate. */
+  @instrument("Client.getRenewalInfo", { kind: SpanKind.CLIENT })
   async getRenewalInfo(
     certificateUniqueIdentity: string,
   ): Promise<RenewalInfo> {
+    const span = trace.getActiveSpan();
+    span?.setAttribute("acme.certificate.id", certificateUniqueIdentity);
     const directory = await this.#getDirectory();
     if (directory.renewalInfo === undefined) {
       throw new Error("Provider does not support renewal information");
@@ -565,6 +639,7 @@ export class Client {
     body: unknown,
     mode: "kid" | "jwk",
   ): Promise<T> {
+    const span = trace.getActiveSpan();
     const nonce = await this.#getNonce();
     const accountKey = this.#accountKey;
     if (!accountKey) throw new Error("No account key");
@@ -597,10 +672,12 @@ export class Client {
         this.#accountUrl = account.url;
       }
       kid = this.#accountUrl;
+      span?.setAttribute("acme.account.url", kid);
     } else if (mode === "jwk") {
       const publicKey = createPublicKey(accountKey);
       jwk = publicKey.export({ format: "jwk" });
     }
+    span?.setAttribute("acme.request.nonce", nonce);
     const jws = await new FlattenedSign(new TextEncoder().encode(payload))
       .setProtectedHeader({
         alg,
