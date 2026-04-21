@@ -575,7 +575,11 @@ export class Client {
       alg = "RS256";
     } else if (
       accountKey.asymmetricKeyType === "ec" &&
-      accountKey.asymmetricKeyDetails?.namedCurve === "p256"
+      // Deno <= 2.5 reported `namedCurve` as "p256" for EC P-256 keys; Deno
+      // 2.7+ switched to OpenSSL's "prime256v1" to match Node.js's longtime
+      // behavior. Accept both so this library works on recent Deno and Node.
+      (accountKey.asymmetricKeyDetails?.namedCurve === "p256" ||
+        accountKey.asymmetricKeyDetails?.namedCurve === "prime256v1")
     ) {
       alg = "ES256";
     } else {
